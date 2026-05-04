@@ -3,10 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Virtual env
-env/
-venv/
-.yolov11/
 
 # Models (IMPORTANT)
 models/
@@ -14,9 +10,9 @@ models/
 *.onnx
 *.safetensors
 
+.vscode
 # Logs & outputs
 alerts/
 *.log
 
-# OS
-.DS_Store
+.vscode
