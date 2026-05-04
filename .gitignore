@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual env
+env/
+venv/
+.yolov11/
+
+# Models (IMPORTANT)
+models/
+*.pt
+*.onnx
+*.safetensors
+
+# Logs & outputs
+alerts/
+*.log
+
+# OS
+.DS_Store

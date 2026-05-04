@@ -1,0 +1,49 @@
+camera:
+  - id: cam_1
+    source: 0   
+  # - id: cam_2
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+
+yolo:
+  model_path: models/yolo/best.pt
+  conf_threshold: 0.8
+
+vlm:
+  model_path: models/Qwen3-VL-2B-Instruct
+  max_new_tokens: 5
+  prompt: |
+    You are a fire detection system.
+
+    Analyze the image carefully.
+
+    Rules:
+    - Only return ONE word
+    - Valid answers: FIRE, SMOKE, NONE
+    - Do not explain
+    - Be strict (avoid false positives)
+
+    Answer:
+  use_fp16: true
+  device: cuda
+  valid_labels: ["FIRE", "SMOKE"]
+  
+ui:
+  window_width: 1280
+  window_height: 720
+
+  font_scale: 1.0
+  font_thickness: 3
+
+  bbox_thickness: 4
+
+  show_label: true
+  show_warning: true
+
+alerts:
+  save_dir: alerts
+  vlm_confirm_dir: alerts/vlm_confirm
+
+system:
+  cooldown: 2
+  resize: [160, 160]
+  sleep: 0.01
