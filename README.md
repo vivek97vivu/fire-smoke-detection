@@ -1,54 +1,95 @@
-# 🔥 Fire & Smoke Detection System
+<div align="center">
 
-### Real-Time AI Pipeline using YOLO + Vision-Language Model (VLM)
+# 🔥 **Fire & Smoke Detection Engine**
 
----
+### 🚨 Real-Time Fire & Smoke Detection for Smart Surveillance Systems
 
-## 🚀 Overview
+A **production-grade AI pipeline** built for **real-time CCTV / RTSP monitoring**, combining **fast detection + intelligent verification** for high-precision alerts.
 
-This project is a **real-time fire & smoke detection system** designed for CCTV / RTSP surveillance.
-
-It combines:
-
-* ⚡ **YOLO** → fast object detection
-* 🧠 **Vision-Language Model (Qwen VLM)** → intelligent validation
-* 🔁 **Tracking + Filtering** → eliminates false positives & duplicate alerts
-
-👉 The result is a **high-precision, low-noise alert system** suitable for real-world deployment.
+> ⚙️ Powered by **YOLO (Detection)** + **Qwen VLM (Verification)**
+> 🧠 Designed for **low false positives, high reliability deployments**
+> 🧩 Part of the **CampNeuron AI Series** — engineered by the **Algosium AI Team**
 
 ---
 
-## 🎯 Key Highlights
+[![Python](https://img.shields.io/badge/Python-3.10-blue?logo=python\&logoColor=white)](#)
+[![CUDA](https://img.shields.io/badge/CUDA-12.x-green?logo=nvidia\&logoColor=white)](#)
+[![YOLO](https://img.shields.io/badge/YOLO-Detection-success?logo=yolo\&logoColor=white)](#)
+[![VLM](https://img.shields.io/badge/Qwen-VLM-orange)](#)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20|%20x86__64-lightgrey?logo=linux\&logoColor=white)](#)
 
-* 🔥 Detects **fire and smoke in real-time**
-* 🧠 Uses **VLM to reduce false positives**
-* ⚠️ Dual-stage alert system:
-
-  * YOLO → *possible detection*
-  * VLM → *confirmed alert*
-* 🚫 Eliminates duplicate alerts using:
-
-  * Object tracking
-  * Cooldown logic
-  * Duplicate frame filtering
-* ⚙️ Fully configurable via YAML
-* 📦 Clean modular architecture (production-ready)
+</div>
 
 ---
 
-## 🧠 Why This Project Matters
+## ⚡ Core Stack
 
-Traditional detection systems rely only on object detection → **high false positives**.
+| Component                 | Purpose                                       |
+| ------------------------- | --------------------------------------------- |
+| 🔥 **YOLO Model**         | Real-time fire & smoke detection              |
+| 🧠 **Qwen3-VL (2B)**      | Visual verification (reduces false positives) |
+| 🎥 **OpenCV Pipeline**    | Camera streaming (RTSP / webcam)              |
+| 🔁 **Object Tracking**    | Avoid repeated alerts                         |
+| ⏱️ **Cooldown System**    | Prevent alert spam                            |
+| 🧠 **Async VLM Worker**   | Non-blocking inference                        |
+| ⚙️ **YAML Config Engine** | Fully configurable pipeline                   |
 
-This system introduces:
+---
+
+## 🚀 Pipeline Overview
 
 ```text
-Detection → Verification → Decision
+Camera (RTSP / Webcam)
+        ↓
+YOLO Detection (Fire / Smoke)
+        ↓
+Tracking + Filtering
+        ↓
+Crop Region of Interest
+        ↓
+VLM Verification (Qwen)
+        ↓
+🚨 ALERT (Only if confirmed)
 ```
 
-✔ Improves reliability
-✔ Reduces noise
-✔ Makes system usable in real environments
+---
+
+## 🎯 Key Features
+
+* 🔥 Real-time fire & smoke detection
+* 🧠 AI verification using Vision-Language Model
+* ⚠️ Dual-stage alert system (Detection → Confirmation)
+* 🚫 Duplicate alert prevention (tracking + hashing)
+* ⚡ Optimized GPU usage (FP16 + selective VLM calls)
+* 📁 Automatic alert storage (raw + verified)
+* ⚙️ Fully config-driven architecture
+
+---
+
+## 📂 Project Structure
+
+```bash
+fire_smoke/
+├── core/
+│   ├── detector.py
+│   ├── vlm.py
+│   ├── vlm_worker.py
+│   ├── decision.py
+│   └── tracker.py
+│
+├── config/
+│   └── config.yaml
+│
+├── alerts/
+│   └── vlm_confirm/
+│
+├── models/
+│   ├── yolo/
+│   └── Qwen3-VL-2B-Instruct/
+│
+├── main.py
+└── README.md
+```
 
 ---
 
