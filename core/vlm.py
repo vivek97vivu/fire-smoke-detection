@@ -1,6 +1,8 @@
-from transformers import AutoProcessor, AutoModelForImageTextToText
-from PIL import Image
+import re
 import torch
+from PIL import Image
+from transformers import AutoProcessor, AutoModelForImageTextToText
+
 
 class VLMVerifier:
     def __init__(self, config):
@@ -12,13 +14,31 @@ class VLMVerifier:
 
         self.model = AutoModelForImageTextToText.from_pretrained(
             config["model_path"],
-            dtype=torch.float16 if config["use_fp16"] else torch.float32,
+            torch_dtype=torch.float16 if config["use_fp16"] else torch.float32,
             device_map=config["device"]
         )
 
         self.model.eval()
+        print("✅ VLM loaded")
 
-    def verify(self, image_path):
+    def _parse_result(self, raw: str) -> str:
+
+        # 1. Strip <think>...</think> blocks (Qwen3 reasoning model)
+        cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
+
+        # 2. Uppercase and remove punctuation
+        cleaned = cleaned.upper()
+        cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+
+        # 3. Check words in reverse — answer is usually at the end
+        words = cleaned.split()
+        for word in reversed(words):
+            if word in self.config["valid_labels"]:
+                return word
+
+        return "NONE"
+
+    def verify(self, image_path: str) -> str:
         try:
             image = Image.open(image_path).convert("RGB")
 
@@ -44,6 +64,9 @@ class VLMVerifier:
                 return_tensors="pt"
             ).to(self.model.device)
 
+            # Only generate new tokens, not the full prompt
+            input_len = inputs["input_ids"].shape[1]
+
             with torch.no_grad():
                 output = self.model.generate(
                     **inputs,
@@ -51,26 +74,20 @@ class VLMVerifier:
                     do_sample=False
                 )
 
-            result = self.processor.batch_decode(
-                output,
+            # Decode only the newly generated tokens (skip the prompt)
+            new_tokens = output[:, input_len:]
+            raw = self.processor.batch_decode(
+                new_tokens,
                 skip_special_tokens=True
             )[0]
 
-            result = result.upper().strip()
-            print(f"[VLM RAW] {result}")
+            print(f"[VLM RAW] {raw!r}")
 
-            # 🔥 Clean output
-            words = result.replace(".", "").split()
+            result = self._parse_result(raw)
 
-            if len(words) > 0:
-                result = words[-1]
-
-            # ✅ Strict match
-            if result in self.config["valid_labels"]:
-                return result
-
-            return "NONE"
+            print(f"[VLM RESULT] {result}")
+            return result
 
         except Exception as e:
-            print("❌ VLM Error:", e)
+            print(f"❌ VLM Error: {e}")
             return "NONE"
