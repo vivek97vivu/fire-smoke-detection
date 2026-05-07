@@ -12,9 +12,13 @@ class VLMVerifier:
 
         self.processor = AutoProcessor.from_pretrained(config["model_path"])
 
+        # device_map streams weights directly from disk → GPU via `accelerate`.
+        # This avoids loading the full model into CPU RAM first,
+        # keeping GPU usage at ~2.5GB instead of ~5GB from the .to(device) approach.
+        # Requires: pip install accelerate
         self.model = AutoModelForImageTextToText.from_pretrained(
             config["model_path"],
-            torch_dtype=torch.float16 if config["use_fp16"] else torch.float32,
+            dtype=torch.float16 if config["use_fp16"] else torch.float32,
             device_map=config["device"]
         )
 
@@ -22,7 +26,14 @@ class VLMVerifier:
         print("✅ VLM loaded")
 
     def _parse_result(self, raw: str) -> str:
+        """
+        Robustly extract FIRE / SMOKE / NONE from raw model output.
 
+        Handles:
+          - Qwen3 <think>...</think> reasoning blocks
+          - Extra punctuation and surrounding text
+          - Multi-word answers (checks every word, not just the last)
+        """
         # 1. Strip <think>...</think> blocks (Qwen3 reasoning model)
         cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
 
@@ -64,7 +75,7 @@ class VLMVerifier:
                 return_tensors="pt"
             ).to(self.model.device)
 
-            # Only generate new tokens, not the full prompt
+            # Decode only newly generated tokens (skip the prompt)
             input_len = inputs["input_ids"].shape[1]
 
             with torch.no_grad():
@@ -74,7 +85,6 @@ class VLMVerifier:
                     do_sample=False
                 )
 
-            # Decode only the newly generated tokens (skip the prompt)
             new_tokens = output[:, input_len:]
             raw = self.processor.batch_decode(
                 new_tokens,

@@ -28,11 +28,73 @@ VLM_SAVE_DIR   = config["alerts"]["vlm_confirm_dir"]
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.makedirs(VLM_SAVE_DIR, exist_ok=True)
 
-# gpu_lock  — only one camera runs YOLO at a time (prevents GPU contention)
-# frame_map — camera threads write frames here; main thread calls imshow
 gpu_lock   = threading.Lock()
 frame_map  = {}
 frame_lock = threading.Lock()
+
+
+# =========================
+# GSTREAMER PIPELINE BUILDER
+# =========================
+def build_gst_pipeline(source):
+    """
+    Builds a low-latency GStreamer pipeline.
+
+    RTSP cameras (H265 / HEVC):
+      rtspsrc           — pulls RTSP stream over TCP
+      drop-on-latency   — drops old frames instead of buffering them
+      latency=0         — no jitter buffer (safe for LAN cameras)
+      rtph265depay      — strips RTP wrapper
+      h265parse         — parses NAL units
+      nvh265dec         — GPU hardware decode on RTX 4080 (zero CPU cost)
+      videoconvert      — converts to BGR for OpenCV
+      appsink           — max-buffers=1 + drop=true = always the latest frame
+
+    Webcam (int index or /dev/videoX):
+      v4l2src → videoconvert → appsink
+    """
+    is_rtsp = isinstance(source, str) and source.startswith("rtsp://")
+
+    if is_rtsp:
+        return (
+            f"rtspsrc location={source} protocols=tcp "
+            f"latency=0 drop-on-latency=true "
+            f"! rtph265depay "
+            f"! h265parse "
+            f"! nvh265dec "
+            f"! videoconvert "
+            f"! video/x-raw,format=BGR "
+            f"! appsink drop=true max-buffers=1 sync=false"
+        )
+    else:
+        dev = f"/dev/video{source}" if isinstance(source, int) else source
+        return (
+            f"v4l2src device={dev} "
+            f"! videoconvert "
+            f"! video/x-raw,format=BGR "
+            f"! appsink drop=true max-buffers=1 sync=false"
+        )
+
+
+def open_capture(source, cam_id=""):
+    """
+    Try GStreamer first. Silently fall back to FFmpeg/default if unavailable.
+    Returns an opened cv2.VideoCapture.
+    """
+    is_rtsp = isinstance(source, str) and source.startswith("rtsp://")
+
+    # Try GStreamer
+    pipeline = build_gst_pipeline(source)
+    cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+    if cap.isOpened():
+        print(f"  [{cam_id}] ✅ GStreamer pipeline active (hardware decode)")
+        return cap
+
+    print(f"  [{cam_id}] ⚠️  GStreamer unavailable — falling back to FFmpeg")
+    if is_rtsp:
+        return cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+    else:
+        return cv2.VideoCapture(source)
 
 
 # =========================
@@ -41,7 +103,7 @@ frame_lock = threading.Lock()
 def run_single_camera(camera_config, RTSP_URL, vlm_worker):
     cam_id = camera_config["id"]
 
-    cap = cv2.VideoCapture(RTSP_URL)
+    cap = open_capture(RTSP_URL, cam_id)
     if not cap.isOpened():
         print(f"❌ {cam_id} not opened")
         return
@@ -49,14 +111,6 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
     detector = YOLODetector(config["yolo"]["model_path"])
     tracker  = sv.ByteTrack()
 
-    # vlm_sent_ids:
-    #   IDs queued to VLM during the CURRENT appearance in frame.
-    #   Cleared when the object vanishes, so a false-positive object
-    #   gets one more VLM check if YOLO picks it up again later.
-    #
-    # vlm_worker.confirmed_ids (in VLMWorker):
-    #   IDs permanently confirmed as FIRE/SMOKE by VLM.
-    #   Never cleared — these are NEVER sent to VLM again.
     vlm_sent_ids   = set()
     active_ids     = set()
     last_sent_time = 0
@@ -68,7 +122,7 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
             print(f"⚠️ {cam_id} reconnecting...")
             time.sleep(1)
             cap.release()
-            cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+            cap = open_capture(RTSP_URL, cam_id)   # reconnect also uses GStreamer
             continue
 
         # --- YOLO (GPU serialized) ---
@@ -104,11 +158,8 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
         else:
             detections = []
 
-        # Free sent-but-not-confirmed IDs that left the frame.
-        # This allows a false-positive object one more VLM attempt
-        # if it reappears, without spamming VLM while it's visible.
-        vanished = vlm_sent_ids - active_ids
-        vlm_sent_ids -= vanished
+        # Free sent-but-not-confirmed IDs that left the frame
+        vlm_sent_ids -= (vlm_sent_ids - active_ids)
 
         # --- Draw + VLM dispatch ---
         if detections:
@@ -123,13 +174,12 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
 
             x1, y1, x2, y2 = det["bbox"]
 
-            # Choose colour: green border if already VLM-confirmed
             if vlm_worker.is_confirmed(obj_id):
-                box_color = (0, 255, 0)          # green = confirmed
+                box_color = (0, 255, 0)
             elif det["class"] == "fire":
-                box_color = (0, 0, 255)          # red = YOLO only
+                box_color = (0, 0, 255)
             else:
-                box_color = (0, 255, 255)        # yellow = YOLO only
+                box_color = (0, 255, 255)
 
             cv2.rectangle(frame, (x1, y1), (x2, y2),
                           box_color, config["ui"]["bbox_thickness"])
@@ -151,23 +201,22 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
                             (0, 255, 255),
                             config["ui"]["font_thickness"])
 
-            # ── GATE 1: already confirmed by VLM → never send again ──
+            # GATE 1: already confirmed by VLM — never send again
             if vlm_worker.is_confirmed(obj_id):
                 continue
 
-            # ── GATE 2: already queued to VLM this appearance → wait ──
+            # GATE 2: already queued this appearance
             if obj_id in vlm_sent_ids:
                 continue
 
-            # ── GATE 3: global cooldown between sends ──
+            # GATE 3: global cooldown
             if time.time() - last_sent_time < COOLDOWN:
                 continue
 
-            # ── GATE 4: VLM not loaded yet ──
+            # GATE 4: VLM not loaded yet
             if vlm_worker.vlm is None:
                 continue
 
-            # --- Crop and send to VLM ---
             crop = frame[y1:y2, x1:x2]
             if crop.size == 0:
                 continue
@@ -199,7 +248,7 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
             cv2.putText(frame, alert_text, (20, 70),
                         cv2.FONT_HERSHEY_SIMPLEX, 2.0, alert_color, 5)
 
-        # --- Push to main thread for display ---
+        # Push to main thread for display
         display_frame = cv2.resize(
             frame,
             (config["ui"]["window_width"], config["ui"]["window_height"])
@@ -229,7 +278,6 @@ def main():
         save_dir=VLM_SAVE_DIR
     )
 
-    # Create all windows on main thread (Qt requirement)
     for camera_config in camera_list:
         win = f"Fire & Smoke Detection - {camera_config['id']}"
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
@@ -247,9 +295,8 @@ def main():
         )
         t.start()
         threads.append(t)
-        time.sleep(0.5)     # stagger GPU startup
+        time.sleep(0.5)
 
-    # --- Display loop on main thread ---
     print("🖥️  Press Q or ESC to quit.")
     while any(t.is_alive() for t in threads):
         with frame_lock:
