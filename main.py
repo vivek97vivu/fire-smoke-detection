@@ -114,6 +114,10 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
     vlm_sent_ids   = set()
     active_ids     = set()
     last_sent_time = 0
+    prev_gray      = None          # for frame-diff skipping
+    DIFF_THRESHOLD = 25            # pixel mean-diff to trigger YOLO (tune 15-40)
+    SKIP_MAX       = 10            # never skip more than N frames in a row
+    skip_count     = 0
 
     while True:
         ret, frame = cap.read()
@@ -124,6 +128,18 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
             cap.release()
             cap = open_capture(RTSP_URL, cam_id)   # reconnect also uses GStreamer
             continue
+
+        # --- Frame diff: skip YOLO if scene hasn't changed ---
+        gray = cv2.cvtColor(cv2.resize(frame, (320, 180)), cv2.COLOR_BGR2GRAY)
+        if prev_gray is not None and skip_count < SKIP_MAX:
+            diff = cv2.absdiff(gray, prev_gray)
+            if diff.mean() < DIFF_THRESHOLD:
+                skip_count += 1
+                prev_gray = gray
+                time.sleep(config["system"]["sleep"])
+                continue           # skip YOLO entirely this frame
+        prev_gray  = gray
+        skip_count = 0
 
         # --- YOLO (GPU serialized) ---
         with gpu_lock:
@@ -162,8 +178,10 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
         vlm_sent_ids -= (vlm_sent_ids - active_ids)
 
         # --- Draw + VLM dispatch ---
-        if detections:
-            print(f"[{cam_id}] {detections}")
+        # Only log detections that pass the confidence threshold
+        above_threshold = [d for d in detections if d['conf'] >= CONF_THRESHOLD]
+        if above_threshold:
+            print(f"[{cam_id}] {above_threshold}")
 
         for det in detections:
             conf   = det["conf"]
@@ -213,9 +231,7 @@ def run_single_camera(camera_config, RTSP_URL, vlm_worker):
             if time.time() - last_sent_time < COOLDOWN:
                 continue
 
-            # GATE 4: VLM not loaded yet
-            if vlm_worker.vlm is None:
-                continue
+            # GATE 4: removed — worker loads VLM on demand when task arrives
 
             crop = frame[y1:y2, x1:x2]
             if crop.size == 0:
