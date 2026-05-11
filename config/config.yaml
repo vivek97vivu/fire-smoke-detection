@@ -1,6 +1,6 @@
 camera:
-  # - id: cam_1
-  #   source: 0
+  - id: cam_1
+    source: 0
   - id: cam_2
     source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
   - id: cam_3
@@ -49,6 +49,28 @@ camera:
   #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
   # - id: cam_25
   #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+
+  # - id: cam_26
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_27
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_28
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_29
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_30
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_31
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_32
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_33
+    source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_34
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+  # - id: cam_35
+  #   source: "rtsp://admin:diffuse123@192.168.0.183:554/cam/realmonitor?channel=1&subtype=0"
+
 
 yolo:
   model_path: models/yolo/best.engine

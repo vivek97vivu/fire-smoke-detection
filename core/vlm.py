@@ -7,46 +7,23 @@ from transformers import AutoProcessor, AutoModelForImageTextToText
 class VLMVerifier:
     def __init__(self, config):
         print("🚀 Loading Qwen3 VLM...")
-
-        self.config = config
-
+        self.config    = config
         self.processor = AutoProcessor.from_pretrained(config["model_path"])
-
-        # device_map streams weights directly from disk → GPU via `accelerate`.
-        # This avoids loading the full model into CPU RAM first,
-        # keeping GPU usage at ~2.5GB instead of ~5GB from the .to(device) approach.
-        # Requires: pip install accelerate
-        self.model = AutoModelForImageTextToText.from_pretrained(
+        self.model     = AutoModelForImageTextToText.from_pretrained(
             config["model_path"],
             dtype=torch.float16 if config["use_fp16"] else torch.float32,
             device_map=config["device"]
         )
-
         self.model.eval()
         print("✅ VLM loaded")
 
     def _parse_result(self, raw: str) -> str:
-        """
-        Robustly extract FIRE / SMOKE / NONE from raw model output.
-
-        Handles:
-          - Qwen3 <think>...</think> reasoning blocks
-          - Extra punctuation and surrounding text
-          - Multi-word answers (checks every word, not just the last)
-        """
-        # 1. Strip <think>...</think> blocks (Qwen3 reasoning model)
         cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
-
-        # 2. Uppercase and remove punctuation
         cleaned = cleaned.upper()
         cleaned = re.sub(r"[^\w\s]", " ", cleaned)
-
-        # 3. Check words in reverse — answer is usually at the end
-        words = cleaned.split()
-        for word in reversed(words):
+        for word in reversed(cleaned.split()):
             if word in self.config["valid_labels"]:
                 return word
-
         return "NONE"
 
     def verify(self, image_path: str) -> str:
@@ -64,18 +41,13 @@ class VLMVerifier:
             ]
 
             text = self.processor.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
+                messages, tokenize=False, add_generation_prompt=True
             )
 
             inputs = self.processor(
-                text=[text],
-                images=[image],
-                return_tensors="pt"
+                text=[text], images=[image], return_tensors="pt"
             ).to(self.model.device)
 
-            # Decode only newly generated tokens (skip the prompt)
             input_len = inputs["input_ids"].shape[1]
 
             with torch.no_grad():
@@ -87,14 +59,19 @@ class VLMVerifier:
 
             new_tokens = output[:, input_len:]
             raw = self.processor.batch_decode(
-                new_tokens,
-                skip_special_tokens=True
+                new_tokens, skip_special_tokens=True
             )[0]
 
+            # LEAK FIX 4: explicitly delete all GPU tensors after inference.
+            # inputs, output, new_tokens all hold CUDA memory.
+            # Without del they linger until the next GC cycle, causing
+            # VRAM to creep up across repeated VLM calls.
+            del inputs, output, new_tokens
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             print(f"[VLM RAW] {raw!r}")
-
             result = self._parse_result(raw)
-
             print(f"[VLM RESULT] {result}")
             return result
 
